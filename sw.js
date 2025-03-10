@@ -1,4 +1,4 @@
-const VERSION = '0.0.5';
+const VERSION = '0.0.6';
 
 class CacheManager {
     #staticFiles = [
@@ -107,6 +107,10 @@ class CacheManager {
         await cache.put(request, response.clone());
         return;
     }
+
+    async getOfflineResponse() {
+        return caches.match('/offline.html');
+    }
 }
 
 const cacheManager = new CacheManager(VERSION);
@@ -144,7 +148,13 @@ self.addEventListener('fetch', (ev) => {
                     cacheManager.cacheResponse(ev.request, fetchResponse.clone());
 
                     return fetchResponse;
-                });
+                },
+                (err) => {
+                    if(ev.request.url.match(/\.html$/i)) {
+                        return cacheManager.getOfflineResponse();
+                    }
+                },
+            );
         })
         .catch((error) => {
             console.error('Failed to fetch: ', error);
