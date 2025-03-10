@@ -1,11 +1,11 @@
-const VERSION = '0.0.1';
+const VERSION = '0.0.5';
 
 class CacheManager {
     #staticFiles = [
         '/',
         '/index.html',
         '/contact',
-        '/contect/index.html',
+        '/contact/index.html',
         '/about',
         '/about/index.html',
         '/js/index.js',
@@ -90,21 +90,21 @@ class CacheManager {
         return supportedMediaMIMERegexList.some(regex => contentType.match(regex));
     }
 
-    async cacheResponse(response) {
-        if(this.#isAssetResponse(response)) {
+    async cacheResponse(request, response) {
+        if(this.#isAssetResponse(response.clone())) {
             const cache = await caches.open(this.#assetsCacheName);
-            await cache.put(response.clone());
+            await cache.put(request, response.clone());
             return;
         }
 
-        if(this.#isStaticFileResponse(response)) {
+        if(this.#isStaticFileResponse(response.clone())) {
             const cache = await caches.open(this.#fileCacheName);
-            await cache.put(response.clone());
+            await cache.put(request, response.clone());
             return;
         }
 
         const cache = await caches.open(this.#dynamicCacheName);
-        await cache.put(response.clone());
+        await cache.put(request, response.clone());
         return;
     }
 }
@@ -114,18 +114,17 @@ const cacheManager = new CacheManager(VERSION);
 self.addEventListener('install', (ev) => {
     ev.waitUntil(
         Promise.resolve()
-        .then(cacheManager.fetchAndCache)
+        .then(() => cacheManager.fetchAndCache())
         .catch((error) => {
             throw new Error('Failed to cache resources on service worker install: ' + error);
         })
     );
-    ev.stopWaiting();
 });
 
 self.addEventListener('activate', (ev) => {
     ev.waitUntil(
         Promise.resolve()
-        .then(cacheManager.clearOldCache)
+        .then(() => cacheManager.clearOldCache())
         .catch((error) => {
             throw new Error('Failed to clear cache from previous iterations: ' + error);
         })
@@ -133,16 +132,22 @@ self.addEventListener('activate', (ev) => {
 });
 
 self.addEventListener('fetch', (ev) => {
-    ev.respondWith(async () => {
-        const cacheResponse = await caches.match(ev.request.url);
+    ev.respondWith(
+    caches.match(ev.request.url)
+        .then((cacheResponse) => {
+            if(cacheResponse) {
+                return Promise.resolve(cacheResponse);
+            }
 
-        if(cacheResponse) {
-            return cacheResponse;
-        }
+            return fetch(ev.request)
+                .then((fetchResponse) => {
+                    cacheManager.cacheResponse(ev.request, fetchResponse.clone());
 
-        const fetchResponse = await fetch(ev.request);
-        await cacheManager.cacheResponse(fetchResponse);
-        
-        return fetchResponse;
-    });
+                    return fetchResponse;
+                });
+        })
+        .catch((error) => {
+            console.error('Failed to fetch: ', error);
+        })
+);
 });
